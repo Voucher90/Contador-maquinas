@@ -1,6 +1,6 @@
 
 //Saúl Íñiguez Macedo -- Centro Tecnológico del Calzado de La Rioja
-//Prog: Contador   Versión: 1.1   Fecha: 08/04/2019
+//Prog: Contador   Versión: 1.2   Fecha: 08/04/2019
 
 /*
   Código para programar ciclos en máquinas de ensayo.
@@ -115,7 +115,7 @@ void loop() {
     if (CICLORPM == 0) {
       RPM = 0;
     } else {
-      RPM = 60000 / ((millis() - tiemporpm) / CICLORPM);
+      RPM = 60000 / ((millis() - tiemporpm) / (CICLORPM-1));
     }
     CICLORPM = 0;
     RPMPREVIO = 0;
@@ -140,9 +140,9 @@ void loop() {
     }
   }
 
-  //Se cuentan los ciclos si han pasado 100ms desde la interrupción y el pin sigue a high
+  //Se cuentan los ciclos si han pasado 70ms desde la interrupción y el pin sigue a high
   //Si en ese tiempo hay otro pulso el tiempo se pone a cero. Si se deja pulsado solo se cuenta el primero
-  if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 100 && INTERR == 1 && MENU == 0) {
+  if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 70 && INTERR == 1 && MENU == 0) {
     if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
       CICLOS++;
     }
@@ -275,7 +275,7 @@ void Set() {
     lcd.print("Definir ciclos");
     if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
-      lcd.print("V1.1 2019");
+      lcd.print("V1.2 2019");
     } else {
       lcd.setCursor ( 7, 0 );
       lcd.print("         ");
