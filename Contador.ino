@@ -1,6 +1,6 @@
 
 //Saúl Íñiguez Macedo -- Centro Tecnológico del Calzado de La Rioja
-//Prog: Contador   Versión: 1.4   Fecha: 08/04/2019
+//Prog: Contador   Versión: 1.5   Fecha: 08/04/2019
 
 /*
   Código para programar ciclos en máquinas de ensayo.
@@ -31,12 +31,13 @@ int DMILLAR = 0;             //Decenas de millar de la consigna de ciclos
 long CONSIGNA = 0;           //Consigna total formada por cada digito anterior
 
 //Variables para conteo de ciclos
-volatile int CICLOS = 0;     //Ciclos contados
-int CICLOSPRINT = 0;         //Variable ciclos a imprimir para que no se modifique con la interrupción
+long CICLOS = 0;             //Ciclos contados
+long CICLOSL = 0;            //Ciclos cargados desde la eeprom (Usada para tiempo)
+long CICLOSPRINT = 0;         //Variable ciclos a imprimir para que no se modifique con la interrupción
 volatile int INTERR = 0;     //Variable para saber cuando ha habido interrupción
 
 //Variables para cálculo de RPM
-volatile int CICLORPM = 0;   //Número de ciclos utilizado para el cálculo de RPM
+int CICLORPM = 0;            //Número de ciclos utilizado para el cálculo de RPM
 int RPM = 0;                 //Revoluciones por minuto
 int RPMPREVIO = 0;           //Número de RPM previas para actualizar el tiempo en la inicial
 
@@ -66,8 +67,16 @@ int RESET = 5;      //Pulsador de reset
 int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
 
 //Variables para la gestión de memoria eeprom
-int eeAddress = 0;  //Dirección de escritura
-int INICIO = 0;     //Comprobación de primera carga
+int INICIO = 0;     //Comprobación de primera carga (Bytes 0, 1)
+int PUNT = 0;       //Puntero para variables de consigna y limpieza de memoria
+int PUNTUC = 18;    //Puntero para unidades de ciclo, se encuentra en (Bytes 12, 13) y barre (Bytes 18, 897)
+int PUNTDC = 898;   //Puntero para decenas de ciclo, se encuentra en (Bytes 14, 15) y barre (Bytes 898, 995)
+int PUNTCC = 986;   //Puntero para centenas de ciclo, se encuentra en (Bytes 16, 18) y barre (Bytes 986, 995)
+int UC = 0;         //Unidades de la descomposición de ciclos
+int DC = 0;         //Decenas de la descomposición de ciclos
+int CC = 0;         //Centenas de la descomposición de ciclos
+int UMC = 0;        //Unidades de millar de la descomposición de ciclos
+int DMC = 0;        //Decenas de millar de la descomposición de ciclos
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 int MEMORIA = 1;    //Define el modo de guardado en eeprom (Activo = 1 o Inactivo = 0)     //
@@ -114,6 +123,7 @@ void loop() {
     HORAS = 0;
     MINUTOS = 0;
     SEGUNDOS = 0;
+    gestionmem(2);  //Se actualizan variables y punteros
   }
 
   if (digitalRead(SET) == HIGH && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
@@ -139,8 +149,9 @@ void loop() {
   if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 70 && INTERR == 1 && MENU == 0) {
     if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
       CICLOS++;
+      gestionmem(2);  //Se actualizan variables y punteros
     }
-    if (CICLOS == 1) {  //Se fija el tiempo de inicio de ensayo
+    if (CICLOS == 1 || CICLOS == CICLOSL + 1) { //Se fija el tiempo de inicio de ensayo
       tiempoensayo = millis();
     }
     CICLORPM++;
@@ -169,7 +180,7 @@ void loop() {
     RPMPREVIO = 0;
   }
 
-  if (CICLOS != CONSIGNA && CICLOS != 0) {  //Se calculan las variables de tiempo
+  if (CICLOS != CONSIGNA && CICLOS != 0 && CICLOS != CICLOSL) { //Se calculan las variables de tiempo
     calculatiempo();
   }
 
@@ -293,7 +304,7 @@ void Set() {
     lcd.print("Definir ciclos");
     if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
-      lcd.print("V1.4 2019");
+      lcd.print("V1.5 2019");
     } else {
       lcd.setCursor ( 7, 0 );
       lcd.print("         ");
@@ -340,36 +351,79 @@ void calculatiempo() {
 //Función para gestionar la memoria eeprom
 void gestionmem(int valor1) {
   if (MEMORIA == 1) {
-    eeAddress = 0;
+    PUNT = 0;
     if (valor1 == 0) {
-      EEPROM.get(eeAddress, INICIO);
+      EEPROM.get(PUNT, INICIO);
       if (INICIO == 1) {
-        //Leer eeprom (Un int son dos bytes, se incrementa la dirección en cada caso)
-        EEPROM.get(eeAddress += sizeof(int), UNIDAD);
-        EEPROM.get(eeAddress += sizeof(int), DECENA);
-        EEPROM.get(eeAddress += sizeof(int), CENTENA);
-        EEPROM.get(eeAddress += sizeof(int), UMILLAR);
-        EEPROM.get(eeAddress += sizeof(int), DMILLAR);
+        //Leer eeprom para obtener las variables de consigna (Un int son dos bytes, se incrementa la dirección en cada caso)
+        EEPROM.get(PUNT += sizeof(int), UNIDAD);
+        EEPROM.get(PUNT += sizeof(int), DECENA);
+        EEPROM.get(PUNT += sizeof(int), CENTENA);
+        EEPROM.get(PUNT += sizeof(int), UMILLAR);
+        EEPROM.get(PUNT += sizeof(int), DMILLAR);
+        //Leer eeprom para obtener la posición de los punteros
+        EEPROM.get(12, PUNTUC);
+        EEPROM.get(14, PUNTDC);
+        EEPROM.get(16, PUNTCC);
+        //Leer eeprom para obtener las variables de ciclo
+        EEPROM.get(PUNTUC, UC);
+        EEPROM.get(PUNTDC, DC);
+        EEPROM.get(PUNTCC, CC);
+        EEPROM.get(996, UMC);
+        EEPROM.get(998, DMC);
+        CICLOS = (DMC * 10000L) + (UMC * 1000L) + (CC * 100L) + (DC * 10L) + UC;
+        CICLOSL = CICLOS;
       } else {
-        //Actualizar eeprom con los valores a cero
-        EEPROM.put(eeAddress, 1);
-        EEPROM.put(eeAddress += sizeof(int), UNIDAD);
-        EEPROM.put(eeAddress += sizeof(int), DECENA);
-        EEPROM.put(eeAddress += sizeof(int), CENTENA);
-        EEPROM.put(eeAddress += sizeof(int), UMILLAR);
-        EEPROM.put(eeAddress += sizeof(int), DMILLAR);
+        //Definir los bytes que indican que ya está inicializado
+        EEPROM.put(PUNT, 1); 
+        while (PUNT < 998) {  //Actualizar toda la eeprom con los valores a cero (Memoria de 1kB)
+          EEPROM.put(PUNT += sizeof(int), 0);
+        }
+        //Definir los punteros iniciales para el primer ciclo de operación
+        EEPROM.put(12, 18);
+        EEPROM.put(14, 898);
+        EEPROM.put(16, 986);
       }
     } else if (valor1 == 1) {
       //Actualizar eeprom (Se hace de este modo para que se mantengan valores en el menú set)
-      EEPROM.update(eeAddress += sizeof(int), UNIDAD);
-      EEPROM.update(eeAddress += sizeof(int), DECENA);
-      EEPROM.update(eeAddress += sizeof(int), CENTENA);
-      EEPROM.update(eeAddress += sizeof(int), UMILLAR);
-      EEPROM.update(eeAddress += sizeof(int), DMILLAR);
+      EEPROM.update(PUNT += sizeof(int), UNIDAD);
+      EEPROM.update(PUNT += sizeof(int), DECENA);
+      EEPROM.update(PUNT += sizeof(int), CENTENA);
+      EEPROM.update(PUNT += sizeof(int), UMILLAR);
+      EEPROM.update(PUNT += sizeof(int), DMILLAR);
+    } else if (valor1 == 2) {
+      if (CICLOS == CONSIGNA) {
+        PUNTUC += sizeof(int);
+        PUNTDC += sizeof(int);
+        PUNTCC += sizeof(int);
+        if (PUNTUC > 897) {
+          PUNTUC = 18;
+        }
+        if (PUNTDC > 985) {
+          PUNTDC = 898;
+        }
+        if (PUNTCC > 995) {
+          PUNTCC = 986;
+        }
+        EEPROM.update(12, PUNTUC);
+        EEPROM.update(14, PUNTDC);
+        EEPROM.update(16, PUNTCC);
+      }
+      DMC = CICLOS / 10000;
+      UMC = (CICLOS - (DMC * 10000)) / 1000;
+      CC = (CICLOS - (DMC * 10000) - (UMC * 1000)) / 1000;
+      DC = (CICLOS - (DMC * 10000) - (UMC * 1000) - (CC * 100)) / 10;
+      UC = CICLOS - (DMC * 10000) - (UMC * 1000) - (CC * 100) - (DC * 10);
+      EEPROM.update(PUNTUC, UC);
+      EEPROM.update(PUNTDC, DC);
+      EEPROM.update(PUNTCC, CC);
+      EEPROM.update(996, UMC);
+      EEPROM.update(998, DMC);
     }
   }
-  //Cálculo de la variable consigna
-  CONSIGNA = (DMILLAR * 10000L) + (UMILLAR * 1000L) + (CENTENA * 100L) + (DECENA * 10L) + UNIDAD;
+  if (valor1 == 0 || valor1 == 1) {  //Cálculo de la variable consigna
+    CONSIGNA = (DMILLAR * 10000L) + (UMILLAR * 1000L) + (CENTENA * 100L) + (DECENA * 10L) + UNIDAD;
+  }
 }
 
 //Interrupción para el conteo de ciclos en cuaqluier instante
