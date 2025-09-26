@@ -1,6 +1,6 @@
 
 //Saúl Íñiguez Macedo -- Centro Tecnológico del Calzado de La Rioja
-//Prog: Contador   Versión: 1.2   Fecha: 08/04/2019
+//Prog: Contador   Versión: 1.3   Fecha: 08/04/2019
 
 /*
   Código para programar ciclos en máquinas de ensayo.
@@ -115,13 +115,13 @@ void loop() {
     if (CICLORPM == 0) {
       RPM = 0;
     } else {
-      RPM = 60000 / ((millis() - tiemporpm) / (CICLORPM-1));
+      RPM = 60000 / ((millis() - tiemporpm) / (CICLORPM - 1));
     }
     CICLORPM = 0;
     RPMPREVIO = 0;
   }
 
-  if (digitalRead(RESET) == HIGH && (millis() - tiemporebote) > 300) {  //Se hace reset de ciclos y variables de tiempo
+  if (digitalRead(RESET) == HIGH && (millis() - tiemporebote) > 300 && MENU == 0) { //Se hace reset de ciclos y variables de tiempo
     tiemporebote = millis();
     CICLOS = 0;
     HORAS = 0;
@@ -140,6 +140,21 @@ void loop() {
     }
   }
 
+  if (millis() - tiempopantalla > 300000) {  //Se fija la variable de pantalla de inicio
+    MENU = 6;
+  }
+
+  if (MENU == 0) {  //Se llama a las funciones dependiendo del tipo de menú
+    muestraDatos();
+  } else if (MENU == 6) {
+    pantallaInicio();
+    if ((millis() - tiempointerr) > 70 && INTERR == 1 && CICLOS != 0 && CICLOS < CONSIGNA) { //Se reanuda el ensayo
+      MENU = 0;
+    }
+  } else {
+    Set();
+  }
+
   //Se cuentan los ciclos si han pasado 70ms desde la interrupción y el pin sigue a high
   //Si en ese tiempo hay otro pulso el tiempo se pone a cero. Si se deja pulsado solo se cuenta el primero
   if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 70 && INTERR == 1 && MENU == 0) {
@@ -153,18 +168,6 @@ void loop() {
     INTERR = 0;
   } else if (digitalRead(SENSOR) == LOW) {
     INTERR = 0;
-  }
-
-  if (millis() - tiempopantalla > 300000) {  //Se fija la variable de pantalla de inicio
-    MENU = 6;
-  }
-
-  if (MENU == 0) {  //Se llama a las funciones dependiendo del tipo de menú
-    muestraDatos();
-  } else if (MENU == 6) {
-    pantallaInicio();
-  } else {
-    Set();
   }
 }
 
@@ -275,7 +278,7 @@ void Set() {
     lcd.print("Definir ciclos");
     if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
-      lcd.print("V1.2 2019");
+      lcd.print("V1.3 2019");
     } else {
       lcd.setCursor ( 7, 0 );
       lcd.print("         ");
