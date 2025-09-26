@@ -1,6 +1,6 @@
 
 //Saúl Íñiguez Macedo -- Centro Tecnológico del Calzado de La Rioja
-//Prog: Contador   Versión: 1.5   Fecha: 08/04/2019
+//Prog: Contador_velcro   Versión: 1.5   Fecha: 08/04/2019
 
 /*
   Código para programar ciclos en máquinas de ensayo.
@@ -58,6 +58,7 @@ unsigned long tiemporpm = 0;        //Contabilizar el tiempo para promediar RPM
 unsigned long tiempopantalla = 0;   //Contabilizar tiempo hasta que aparezca pantalla de reposo
 unsigned long tiempoensayo = 0;     //Fijar el tiempo inicial ensayo
 unsigned long tiempomillis = 0;     //Contabilizar el tiempo de ensayo
+unsigned long tiempogiro = 0;       //Contabilizar el tiempo entre cambios de sentido del giro
 
 //Variables pulsadores sensores y actuadores
 int SENSOR = 2;     //Sensor para conteo de ciclos
@@ -65,6 +66,7 @@ int PULSADOR = 3;   //Pulsador para cambiar digitos
 int SET = 4;        //Pulsador de set
 int RESET = 5;      //Pulsador de reset
 int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
+int RELEGIRO = 7;   //Relé para control del sentido de giro del motor
 
 //Variables para la gestión de memoria eeprom
 int INICIO = 0;     //Comprobación de primera carga (Bytes 0, 1)
@@ -101,6 +103,7 @@ void setup() {
   pinMode(SET, INPUT);
   pinMode(RESET, INPUT);
   pinMode(RELE, OUTPUT);
+  pinMode(RELEGIRO, OUTPUT);
   //Se inicia el LCD y se define el brillo
   lcd.begin (16, 2);
   lcd.setBacklightPin(3, POSITIVE);
@@ -153,6 +156,7 @@ void loop() {
     }
     if (CICLOS == 1 || CICLOS == CICLOSL + 1) { //Se fija el tiempo de inicio de ensayo
       tiempoensayo = millis();
+      tiempogiro = millis();
     }
     CICLORPM++;
     INTERR = 0;
@@ -164,6 +168,14 @@ void loop() {
     digitalWrite(RELE, HIGH);
   } else if (digitalRead(RELE) == HIGH && ((CONTACTO == 0 && (CICLOS == CONSIGNA || (MENU > 0 && MENU < 6))) || (CONTACTO == 1 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)))) {
     digitalWrite(RELE, LOW);
+  }
+
+  if (digitalRead(RELEGIRO) == LOW && ((millis() - tiempogiro) > 30000) && CICLOS != 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) { //Activación del relé
+    digitalWrite(RELEGIRO, HIGH);
+    tiempogiro = millis();
+  } else if (digitalRead(RELEGIRO) == HIGH && ((millis() - tiempogiro) > 30000) && CICLOS != 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) {
+    digitalWrite(RELEGIRO, LOW);
+    tiempogiro = millis();
   }
 
   //RPM se pone a 0 pasados 10s. Respuesta rápida a altas RPM pero no mide menos de 6 RPM sin modificar los 10s
@@ -375,7 +387,7 @@ void gestionmem(int valor1) {
         CICLOSL = CICLOS;
       } else {
         //Definir los bytes que indican que ya está inicializado
-        EEPROM.put(PUNT, 1); 
+        EEPROM.put(PUNT, 1);
         while (PUNT < 998) {  //Actualizar toda la eeprom con los valores a cero (Memoria de 1kB)
           EEPROM.put(PUNT += sizeof(int), 0);
         }
