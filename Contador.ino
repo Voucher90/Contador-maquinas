@@ -60,13 +60,15 @@ unsigned long tiempoensayo = 0;     //Fijar el tiempo inicial ensayo
 unsigned long tiempomillis = 0;     //Contabilizar el tiempo de ensayo
 unsigned long tiempogiro = 0;       //Contabilizar el tiempo entre cambios de sentido del giro
 
-//Variables pulsadores sensores y actuadores
-int SENSOR = 2;     //Sensor para conteo de ciclos
-int PULSADOR = 3;   //Pulsador para cambiar digitos
-int SET = 4;        //Pulsador de set
-int RESET = 5;      //Pulsador de reset
-int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
-int RELEGIRO = 7;   //Relé para control del sentido de giro del motor
+/*
+  //Variables pulsadores sensores y actuadores
+  int SENSOR = 2;     //Sensor para conteo de ciclos
+  int PULSADOR = 3;   //Pulsador para cambiar digitos
+  int SET = 4;        //Pulsador de set
+  int RESET = 5;      //Pulsador de reset
+  int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
+  int RELEGIRO = 7;   //Relé para control del sentido de giro del motor
+*/
 
 //Variables para la gestión de memoria eeprom
 int INICIO = 0;     //Comprobación de primera carga (Bytes 0, 1)
@@ -97,13 +99,8 @@ byte A[8] = {       //Definición de una variable con la información de un cara
 };
 
 void setup() {
-  //Definicion de pines como salidas o entradas
-  pinMode(SENSOR, INPUT);
-  pinMode(PULSADOR, INPUT);
-  pinMode(SET, INPUT);
-  pinMode(RESET, INPUT);
-  pinMode(RELE, OUTPUT);
-  pinMode(RELEGIRO, OUTPUT);
+  //Definicion de pines como salidas o entradas, Puerto D pines digitales de 7 a 0
+  DDRD = B11000000;
   //Se inicia el LCD y se define el brillo
   lcd.begin (16, 2);
   lcd.setBacklightPin(3, POSITIVE);
@@ -116,11 +113,11 @@ void setup() {
 void loop() {
 
   //Se actualiza el tiempo mientras se está a low para empezar a contar desde que se pulsa
-  if ((digitalRead(PULSADOR) == LOW) && (digitalRead(SET) == LOW) && (digitalRead(RESET) == LOW)) {
+  if (!(PIND & (1 << PD3)) && !(PIND & (1 << PD4)) && !(PIND & (1 << PD5))) {
     tiemporebote = millis();
   }
 
-  if (digitalRead(RESET) == HIGH && (millis() - tiemporebote) > 300 && MENU == 0) { //Se hace reset de ciclos y variables de tiempo
+  if (PIND & (1 << PD5) && (millis() - tiemporebote) > 300 && MENU == 0) { //Se hace reset de ciclos y variables de tiempo
     tiemporebote = millis();
     CICLOS = 0;
     HORAS = 0;
@@ -129,7 +126,7 @@ void loop() {
     gestionmem(2);  //Se actualizan variables y punteros
   }
 
-  if (digitalRead(SET) == HIGH && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
+  if (PIND & (1 << PD4) && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
     tiemporebote = millis();
     tiempopantalla = millis();
     if (MENU < 5 && CICLOS == 0) {
@@ -149,7 +146,7 @@ void loop() {
 
   //Se cuentan los ciclos si han pasado 70ms desde la interrupción y el pin sigue a high
   //Si en ese tiempo hay otro pulso el tiempo se pone a cero. Si se deja pulsado solo se cuenta el primero
-  if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 70 && INTERR == 1 && MENU == 0) {
+  if (PIND & (1 << PD2) && (millis() - tiempointerr) > 70 && INTERR == 1 && MENU == 0) {
     if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
       CICLOS++;
       gestionmem(2);  //Se actualizan variables y punteros
@@ -160,21 +157,21 @@ void loop() {
     }
     CICLORPM++;
     INTERR = 0;
-  } else if (digitalRead(SENSOR) == LOW) {
+  } else if (!(PIND & (1 << PD2))) {
     INTERR = 0;
   }
 
-  if (digitalRead(RELE) == LOW && ((CONTACTO == 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) || (CONTACTO == 1 && (CICLOS == CONSIGNA || (MENU > 0 && MENU < 6))))) {  //Activación del relé
-    digitalWrite(RELE, HIGH);
-  } else if (digitalRead(RELE) == HIGH && ((CONTACTO == 0 && (CICLOS == CONSIGNA || (MENU > 0 && MENU < 6))) || (CONTACTO == 1 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)))) {
-    digitalWrite(RELE, LOW);
+  if (!(PIND & (1 << PD6)) && ((CONTACTO == 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) || (CONTACTO == 1 && (CICLOS == CONSIGNA || (MENU > 0 && MENU < 6))))) {  //Activación del relé
+    PORTD |= (1 << PB6);  //Se define solamente el pin 6 a HIGH
+  } else if (PIND & (1 << PD6) && ((CONTACTO == 0 && (CICLOS == CONSIGNA || (MENU > 0 && MENU < 6))) || (CONTACTO == 1 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)))) {
+    PORTD &= ~(1 << PB6);  //Se define solamente el pin 6 a LOW
   }
 
-  if (digitalRead(RELEGIRO) == LOW && ((millis() - tiempogiro) > 30000) && CICLOS != 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) { //Activación del relé
-    digitalWrite(RELEGIRO, HIGH);
+  if (!(PIND & (1 << PD7)) && ((millis() - tiempogiro) > 30000) && CICLOS != 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) {  //Activación del relé
+    PORTD |= (1 << PB7);  //Se define solamente el pin 7 a HIGH
     tiempogiro = millis();
-  } else if (digitalRead(RELEGIRO) == HIGH && ((millis() - tiempogiro) > 30000) && CICLOS != 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) {
-    digitalWrite(RELEGIRO, LOW);
+  } else if (PIND & (1 << PD7) && ((millis() - tiempogiro) > 30000) && CICLOS != 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) {
+    PORTD &= ~(1 << PB7);  //Se define solamente el pin 7 a LOW
     tiempogiro = millis();
   }
 
@@ -271,7 +268,7 @@ void Set() {
     lcd.clear();
   }
   MENUPREVIO = MENU;
-  if (digitalRead(PULSADOR) == HIGH && (millis() - tiemporebote) > 300) {
+  if (PIND & (1 << PD3) && (millis() - tiemporebote) > 300) {
     tiemporebote = millis();
     if (MENU == 1) {
       if (DMILLAR < 0 || DMILLAR > 8) {
@@ -314,7 +311,7 @@ void Set() {
     lcd.print(UNIDAD);
     lcd.setCursor ( 0, 1 );
     lcd.print("Definir ciclos");
-    if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
+    if (PIND & (1 << PD5)) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
       lcd.print("V1.5 2019");
     } else {
@@ -349,7 +346,7 @@ void pantallaInicio() {
   lcd.write (byte (1));
   lcd.print("CTCR");
   lcd.setCursor ( 0, 1);
-  lcd.print(" Ensayo flexion");
+  lcd.print(" Ensayo velcros");
 }
 
 //Función para calcular el tiempo de ensayo
