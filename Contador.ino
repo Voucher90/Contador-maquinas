@@ -1,6 +1,6 @@
 
 //Saúl Íñiguez Macedo -- Centro Tecnológico del Calzado de La Rioja
-//Prog: Contador   Versión: 1.0   Fecha: 08/04/2019
+//Prog: Contador   Versión: 1.1   Fecha: 08/04/2019
 
 /*
   Código para programar ciclos en máquinas de ensayo.
@@ -19,31 +19,43 @@
 #define I2C_ADDR 0x27
 LiquidCrystal_I2C lcd(I2C_ADDR, 2, 1, 0, 4, 5, 6, 7);
 
+//Variables para consigna
 int UNIDAD = 0;              //Unidades de la consigna de ciclos
 int DECENA = 0;              //Decenas de la consigna de ciclos
 int CENTENA = 0;             //Centenas de la consigna de ciclos
 int UMILLAR = 0;             //Unidades de millar de la consigna de ciclos
 int DMILLAR = 0;             //Decenas de millar de la consigna de ciclos
 long CONSIGNA = 0;           //Consigna total formada por cada digito anterior
+
+//Variables para conteo de ciclos
 volatile int CICLOS = 0;     //Ciclos contados
 int CICLOSPRINT = 0;         //Variable ciclos a imprimir para que no se modifique con la interrupción
-int RPM = 0;                 //Revoluciones por minuto
+volatile int INTERR = 0;     //Variable para saber cuando ha habido interrupción
+
+//Variables para cálculo de RPM
 volatile int CICLORPM = 0;   //Número de ciclos utilizado para el cálculo de RPM
+int RPM = 0;                 //Revoluciones por minuto
 int RPMPREVIO = 0;           //Número de RPM previas para actualizar el tiempo en la inicial
+
+//Variables para crear menús
 int MENU = 6;                //Variable para identificar en que parte del menu de seleccion de ciclos se está
 int MENUPREVIO = 0;          //Variable para saber cuando hacer clear en el LCD
+
+//Variables para tiempo de ensayo
 int HORAS = 0;               //Horas de ensayo
 int MINUTOS = 0;             //Minutos de ensayo
 int SEGUNDOS = 0;            //Segundos de ensayo
 
-unsigned long tiemposensor = 0;     //Tiempo para evitar rebotes en el sensor de conteo de ciclos
-unsigned long tiempopulsador = 0;   //Tiempo para evitar rebotes en el pulsador
+//Variables de tiempo para temporizar
+unsigned long tiemporebote = 0;     //Tiempo para evitar rebotes en los pulsadores
+unsigned long tiempointerr = 0;     //Tiempo para evitar rebotes en la interrupción (Distinto de tiemposensor para evitar problemas)
 unsigned long tiempoparpadeo = 0;   //Contabilizar tiempo de parpadeo de dígitos
-unsigned long tiemporpm = 0;        //Contabilizar el tiempo en que promediar RPM
-unsigned long tiempopantalla = 0;   //Contabilizar tiempo hasta que aparezca pantalla inicial
+unsigned long tiemporpm = 0;        //Contabilizar el tiempo para promediar RPM
+unsigned long tiempopantalla = 0;   //Contabilizar tiempo hasta que aparezca pantalla de reposo
 unsigned long tiempoensayo = 0;     //Fijar el tiempo inicial ensayo
 unsigned long tiempomillis = 0;     //Contabilizar el tiempo de ensayo
 
+//Variables pulsadores sensores y actuadores
 int SENSOR = 2;     //Sensor para conteo de ciclos
 int PULSADOR = 3;   //Pulsador para cambiar digitos
 int SET = 4;        //Pulsador de set
@@ -78,12 +90,21 @@ void setup() {
 
 void loop() {
 
+  //Se actualiza el tiempo mientras se está a low para empezar a contar desde que se pulsa
+  if ((digitalRead(PULSADOR) == LOW) && (digitalRead(SET) == LOW) && (digitalRead(RESET) == LOW)) {
+    tiemporebote = millis();
+  }
+
   if (MENU == 0) {  //Cálculo de la variable consigna
     CONSIGNA = (DMILLAR * 10000L) + (UMILLAR * 1000L) + (CENTENA * 100L) + (DECENA * 10L) + UNIDAD;
   }
 
   if (CICLOS == CONSIGNA && CONSIGNA != 0) {  //Activación del relé (Pasa a abierto hasta hacer reset)
     digitalWrite(RELE, HIGH);
+  }
+
+  if (CICLOS != CONSIGNA && CICLOS != 0) {  //Se calculan las variables de tiempo
+    calculatiempo();
   }
 
   //RPM se pone a 0 pasados 10s. Respuesta rápida a altas RPM pero no mide menos de 6 RPM sin modificar los 10s
@@ -100,8 +121,8 @@ void loop() {
     RPMPREVIO = 0;
   }
 
-  if (digitalRead(RESET) == HIGH && (millis() - tiempopulsador) > 300) {  //Se hace reset de ciclos y variables de tiempo
-    tiempopulsador = millis();
+  if (digitalRead(RESET) == HIGH && (millis() - tiemporebote) > 300) {  //Se hace reset de ciclos y variables de tiempo
+    tiemporebote = millis();
     CICLOS = 0;
     HORAS = 0;
     MINUTOS = 0;
@@ -109,12 +130,8 @@ void loop() {
     digitalWrite(RELE, LOW);
   }
 
-  if (CICLOS != CONSIGNA && CICLOS != 0) {  //Se calculan las variables de tiempo
-    calculatiempo();
-  }
-
-  if (digitalRead(SET) == HIGH && (millis() - tiempopulsador) > 300) {  //Se define la variable para entrar a los menús
-    tiempopulsador = millis();
+  if (digitalRead(SET) == HIGH && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
+    tiemporebote = millis();
     if (MENU < 5 && CICLOS == 0) {
       MENU++;
     } else if (MENU == 5 || MENU == 6) {
@@ -123,11 +140,26 @@ void loop() {
     }
   }
 
+  //Se cuentan los ciclos si han pasado 100ms desde la interrupción y el pin sigue a high
+  //Si en ese tiempo hay otro pulso el tiempo se pone a cero. Si se deja pulsado solo se cuenta el primero
+  if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 100 && INTERR == 1 && MENU == 0) {
+    if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
+      CICLOS++;
+    }
+    if (CICLOS == 1) {  //Se fija el tiempo de inicio de ensayo
+      tiempoensayo = millis();
+    }
+    CICLORPM++;
+    INTERR = 0;
+  } else if (digitalRead(SENSOR) == LOW) {
+    INTERR = 0;
+  }
+
   if (millis() - tiempopantalla > 300000) {  //Se fija la variable de pantalla de inicio
     MENU = 6;
   }
 
-  if (MENU == 0) {  //Se llama a las funciones deoendiendo del tipo de menú
+  if (MENU == 0) {  //Se llama a las funciones dependiendo del tipo de menú
     muestraDatos();
   } else if (MENU == 6) {
     pantallaInicio();
@@ -138,7 +170,7 @@ void loop() {
 
 //Función para mostrar los datos de consigna, ciclos actuales, RPM y tiempo de ensayo
 void muestraDatos() {
-  if (MENUPREVIO != 0) {
+  if (MENUPREVIO != MENU) {
     lcd.clear();
   }
   MENUPREVIO = MENU;
@@ -198,8 +230,8 @@ void Set() {
     lcd.clear();
   }
   MENUPREVIO = MENU;
-  if (digitalRead(PULSADOR) == HIGH && (millis() - tiempopulsador) > 300) {
-    tiempopulsador = millis();
+  if (digitalRead(PULSADOR) == HIGH && (millis() - tiemporebote) > 300) {
+    tiemporebote = millis();
     if (MENU == 1) {
       if (DMILLAR < 9) {
         DMILLAR++;
@@ -243,7 +275,7 @@ void Set() {
     lcd.print("Definir ciclos");
     if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
-      lcd.print("V1.0 2019");
+      lcd.print("V1.1 2019");
     } else {
       lcd.setCursor ( 7, 0 );
       lcd.print("         ");
@@ -268,7 +300,7 @@ void Set() {
 
 //Función para mostrar una pantalla inicial y de reposo
 void pantallaInicio() {
-  if (MENUPREVIO == 0) {
+  if (MENUPREVIO != MENU) {
     lcd.clear();
   }
   MENUPREVIO = MENU;
@@ -289,15 +321,7 @@ void calculatiempo() {
 
 //Interrupción para el conteo de ciclos en cuaqluier instante
 void ServicioSensor() {
-  if ((millis() - tiemposensor) > 200) {  //Se pone el tiempo para evitar que cuente rebotes
-    tiemposensor = millis();
-    tiempopantalla = millis();
-    if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
-      CICLOS++;
-    }
-    if (CICLOS == 1) {  //Se fija el tiempo de inicio de ensayo
-      tiempoensayo = millis();
-    }
-    CICLORPM++;
-  }
+  tiempointerr = millis();
+  tiempopantalla = millis();
+  INTERR = 1;
 }
