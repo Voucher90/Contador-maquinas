@@ -44,12 +44,13 @@ unsigned long tiempopantalla = 0;   //Contabilizar tiempo hasta que aparezca pan
 unsigned long tiempoensayo = 0;     //Fijar el tiempo inicial ensayo
 unsigned long tiempomillis = 0;     //Contabilizar el tiempo de ensayo
 
-int SENSOR = 2;     //Sensor para conteo de ciclos
-int PULSADOR = 3;   //Pulsador para cambiar digitos
-int SET = 4;        //Pulsador de set
-int RESET = 5;      //Pulsador de reset
-int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
-
+/*
+  int SENSOR = 2;     //Sensor para conteo de ciclos
+  int PULSADOR = 3;   //Pulsador para cambiar digitos
+  int SET = 4;        //Pulsador de set
+  int RESET = 5;      //Pulsador de reset
+  int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
+*/
 byte A[8] = {       //Definición de una variable con la información de un caracter especial
   B00000,
   B11111,
@@ -62,12 +63,8 @@ byte A[8] = {       //Definición de una variable con la información de un cara
 };
 
 void setup() {
-  //Definicion de pines como salidas o entradas
-  pinMode(SENSOR, INPUT);
-  pinMode(PULSADOR, INPUT);
-  pinMode(SET, INPUT);
-  pinMode(RESET, INPUT);
-  pinMode(RELE, OUTPUT);
+  //Definicion de pines como salidas o entradas, Puerto D pines digitales de 7 a 0
+  DDRD = B01000000;
   //Se inicia el LCD y se define el brillo
   lcd.begin (16, 2);
   lcd.setBacklightPin(3, POSITIVE);
@@ -83,7 +80,7 @@ void loop() {
   }
 
   if (CICLOS == CONSIGNA && CONSIGNA != 0) {  //Activación del relé (Pasa a abierto hasta hacer reset)
-    digitalWrite(RELE, HIGH);
+    PORTD |= (1 << PB6); //Se define solamente el pin 6 a HIGH
   }
 
   //RPM se pone a 0 pasados 10s. Respuesta rápida a altas RPM pero no mide menos de 6 RPM sin modificar los 10s
@@ -100,20 +97,20 @@ void loop() {
     RPMPREVIO = 0;
   }
 
-  if (digitalRead(RESET) == HIGH && (millis() - tiempopulsador) > 300) {  //Se hace reset de ciclos y variables de tiempo
+  if (PIND & (1 << PD5) && (millis() - tiempopulsador) > 300) { //Se hace reset de ciclos y variables de tiempo
     tiempopulsador = millis();
     CICLOS = 0;
     HORAS = 0;
     MINUTOS = 0;
     SEGUNDOS = 0;
-    digitalWrite(RELE, LOW);
+    PORTD &= ~(1 << PB6); //Se define solamente el pin 6 a LOW
   }
 
   if (CICLOS != CONSIGNA && CICLOS != 0) {  //Se calculan las variables de tiempo
     calculatiempo();
   }
 
-  if (digitalRead(SET) == HIGH && (millis() - tiempopulsador) > 300) {  //Se define la variable para entrar a los menús
+  if (PIND & (1 << PD4) && (millis() - tiempopulsador) > 300) {  //Se define la variable para entrar a los menús
     tiempopulsador = millis();
     if (MENU < 5 && CICLOS == 0) {
       MENU++;
@@ -198,7 +195,7 @@ void Set() {
     lcd.clear();
   }
   MENUPREVIO = MENU;
-  if (digitalRead(PULSADOR) == HIGH && (millis() - tiempopulsador) > 300) {
+  if (PIND & (1 << PD3) && (millis() - tiempopulsador) > 300) {
     tiempopulsador = millis();
     if (MENU == 1) {
       if (DMILLAR < 9) {
@@ -241,7 +238,7 @@ void Set() {
     lcd.print(UNIDAD);
     lcd.setCursor ( 0, 1 );
     lcd.print("Definir ciclos");
-    if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
+    if (PIND & (1 << PD5)) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
       lcd.print("V1.0 2019");
     } else {
