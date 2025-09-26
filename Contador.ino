@@ -1,6 +1,6 @@
 
 //Saúl Íñiguez Macedo -- Centro Tecnológico del Calzado de La Rioja
-//Prog: Contador   Versión: 1.3   Fecha: 08/04/2019
+//Prog: Contador   Versión: 1.4   Fecha: 08/04/2019
 
 /*
   Código para programar ciclos en máquinas de ensayo.
@@ -14,6 +14,9 @@
 #include <Wire.h>
 #include <LCD.h>
 #include <LiquidCrystal_I2C.h>
+
+//Se inicializa la librería para el uso de la memoria eeprom
+#include <EEPROM.h>
 
 //Definición de la dirección y pinout del LCD
 #define I2C_ADDR 0x27
@@ -62,6 +65,15 @@ int SET = 4;        //Pulsador de set
 int RESET = 5;      //Pulsador de reset
 int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
 
+//Variables para la gestión de memoria eeprom
+int eeAddress = 0;  //Dirección de escritura
+int INICIO = 0;     //Comprobación de primera carga
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+int MEMORIA = 1;    //Define el modo de guardado en eeprom (Activo = 1 o Inactivo = 0)     //
+int CONTACTO = 1;   //Variable de definición de contacto (Relé NA = 0 y Relé NC = 1)       //
+/////////////////////////////////////////////////////////////////////////////////////////////
+
 byte A[8] = {       //Definición de una variable con la información de un caracter especial
   B00000,
   B11111,
@@ -85,7 +97,8 @@ void setup() {
   lcd.setBacklightPin(3, POSITIVE);
   lcd.setBacklight(HIGH);
   attachInterrupt( 0, ServicioSensor, RISING);
-  lcd.createChar (1, A);   //Creación de un caracter especial con la variable A
+  lcd.createChar (1, A);  //Creación de un caracter especial con la variable A
+  gestionmem(0);  //Se inicia la eeprom o se lee y se calcula consigna
 }
 
 void loop() {
@@ -95,16 +108,51 @@ void loop() {
     tiemporebote = millis();
   }
 
-  if (MENU == 0) {  //Cálculo de la variable consigna
-    CONSIGNA = (DMILLAR * 10000L) + (UMILLAR * 1000L) + (CENTENA * 100L) + (DECENA * 10L) + UNIDAD;
+  if (digitalRead(RESET) == HIGH && (millis() - tiemporebote) > 300 && MENU == 0) { //Se hace reset de ciclos y variables de tiempo
+    tiemporebote = millis();
+    CICLOS = 0;
+    HORAS = 0;
+    MINUTOS = 0;
+    SEGUNDOS = 0;
   }
 
-  if (CICLOS == CONSIGNA && CONSIGNA != 0) {  //Activación del relé (Pasa a abierto hasta hacer reset)
+  if (digitalRead(SET) == HIGH && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
+    tiemporebote = millis();
+    tiempopantalla = millis();
+    if (MENU < 5 && CICLOS == 0) {
+      MENU++;
+    } else if (MENU == 5) {
+      gestionmem(1);  //Se actualiza la eeprom y se calcula consigna
+      MENU = 0;
+    } else if (MENU == 6) {
+      MENU = 0;
+    }
+  }
+
+  //Si se detecta un ciclo estando en reposo se va a la pantalla de ensayo
+  if (MENU == 6 && (millis() - tiempointerr) > 70 && INTERR == 1 && CONSIGNA > 0) {
+    MENU = 0;
+  }
+
+  //Se cuentan los ciclos si han pasado 70ms desde la interrupción y el pin sigue a high
+  //Si en ese tiempo hay otro pulso el tiempo se pone a cero. Si se deja pulsado solo se cuenta el primero
+  if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 70 && INTERR == 1 && MENU == 0) {
+    if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
+      CICLOS++;
+    }
+    if (CICLOS == 1) {  //Se fija el tiempo de inicio de ensayo
+      tiempoensayo = millis();
+    }
+    CICLORPM++;
+    INTERR = 0;
+  } else if (digitalRead(SENSOR) == LOW) {
+    INTERR = 0;
+  }
+
+  if (digitalRead(RELE) == LOW && ((CONTACTO == 0 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)) || (CONTACTO == 1 && (CICLOS == CONSIGNA || (MENU > 0 && MENU < 6))))) {  //Activación del relé
     digitalWrite(RELE, HIGH);
-  }
-
-  if (CICLOS != CONSIGNA && CICLOS != 0) {  //Se calculan las variables de tiempo
-    calculatiempo();
+  } else if (digitalRead(RELE) == HIGH && ((CONTACTO == 0 && (CICLOS == CONSIGNA || (MENU > 0 && MENU < 6))) || (CONTACTO == 1 && CICLOS != CONSIGNA && (MENU == 0 || MENU == 6)))) {
+    digitalWrite(RELE, LOW);
   }
 
   //RPM se pone a 0 pasados 10s. Respuesta rápida a altas RPM pero no mide menos de 6 RPM sin modificar los 10s
@@ -121,23 +169,8 @@ void loop() {
     RPMPREVIO = 0;
   }
 
-  if (digitalRead(RESET) == HIGH && (millis() - tiemporebote) > 300 && MENU == 0) { //Se hace reset de ciclos y variables de tiempo
-    tiemporebote = millis();
-    CICLOS = 0;
-    HORAS = 0;
-    MINUTOS = 0;
-    SEGUNDOS = 0;
-    digitalWrite(RELE, LOW);
-  }
-
-  if (digitalRead(SET) == HIGH && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
-    tiemporebote = millis();
-    if (MENU < 5 && CICLOS == 0) {
-      MENU++;
-    } else if (MENU == 5 || MENU == 6) {
-      MENU = 0;
-      tiempopantalla = millis();
-    }
+  if (CICLOS != CONSIGNA && CICLOS != 0) {  //Se calculan las variables de tiempo
+    calculatiempo();
   }
 
   if (millis() - tiempopantalla > 300000) {  //Se fija la variable de pantalla de inicio
@@ -148,26 +181,8 @@ void loop() {
     muestraDatos();
   } else if (MENU == 6) {
     pantallaInicio();
-    if ((millis() - tiempointerr) > 70 && INTERR == 1 && CICLOS != 0 && CICLOS < CONSIGNA) { //Se reanuda el ensayo
-      MENU = 0;
-    }
   } else {
     Set();
-  }
-
-  //Se cuentan los ciclos si han pasado 70ms desde la interrupción y el pin sigue a high
-  //Si en ese tiempo hay otro pulso el tiempo se pone a cero. Si se deja pulsado solo se cuenta el primero
-  if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 70 && INTERR == 1 && MENU == 0) {
-    if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
-      CICLOS++;
-    }
-    if (CICLOS == 1) {  //Se fija el tiempo de inicio de ensayo
-      tiempoensayo = millis();
-    }
-    CICLORPM++;
-    INTERR = 0;
-  } else if (digitalRead(SENSOR) == LOW) {
-    INTERR = 0;
   }
 }
 
@@ -236,34 +251,34 @@ void Set() {
   if (digitalRead(PULSADOR) == HIGH && (millis() - tiemporebote) > 300) {
     tiemporebote = millis();
     if (MENU == 1) {
-      if (DMILLAR < 9) {
-        DMILLAR++;
-      } else if (DMILLAR == 9) {
+      if (DMILLAR < 0 || DMILLAR > 8) {
         DMILLAR = 0;
+      } else if (DMILLAR < 9) {
+        DMILLAR++;
       }
     } else if (MENU == 2) {
-      if (UMILLAR < 9) {
-        UMILLAR++;
-      } else if (UMILLAR == 9) {
+      if (UMILLAR < 0 || UMILLAR > 8) {
         UMILLAR = 0;
+      } else if (UMILLAR < 9) {
+        UMILLAR++;
       }
     } else if (MENU == 3) {
-      if (CENTENA < 9) {
-        CENTENA++;
-      } else if (CENTENA == 9) {
+      if (CENTENA < 0 || CENTENA > 8) {
         CENTENA = 0;
+      } else if (CENTENA < 9) {
+        CENTENA++;
       }
     } else if (MENU == 4) {
-      if (DECENA < 9) {
-        DECENA++;
-      } else if (DECENA == 9) {
+      if (DECENA < 0 || DECENA > 8) {
         DECENA = 0;
+      } else if (DECENA < 9) {
+        DECENA++;
       }
     } else if (MENU == 5) {
-      if (UNIDAD < 9) {
-        UNIDAD++;
-      } else if (UNIDAD == 9) {
+      if (UNIDAD < 0 || UNIDAD > 8) {
         UNIDAD = 0;
+      } else if (UNIDAD < 9) {
+        UNIDAD++;
       }
     }
   }
@@ -278,7 +293,7 @@ void Set() {
     lcd.print("Definir ciclos");
     if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
-      lcd.print("V1.3 2019");
+      lcd.print("V1.4 2019");
     } else {
       lcd.setCursor ( 7, 0 );
       lcd.print("         ");
@@ -320,6 +335,41 @@ void calculatiempo() {
   HORAS = tiempomillis / 3600000;
   MINUTOS = (tiempomillis - (HORAS * 3600000)) / 60000;
   SEGUNDOS = (tiempomillis - (HORAS * 3600000) - (MINUTOS * 60000)) / 1000;
+}
+
+//Función para gestionar la memoria eeprom
+void gestionmem(int valor1) {
+  if (MEMORIA == 1) {
+    eeAddress = 0;
+    if (valor1 == 0) {
+      EEPROM.get(eeAddress, INICIO);
+      if (INICIO == 1) {
+        //Leer eeprom (Un int son dos bytes, se incrementa la dirección en cada caso)
+        EEPROM.get(eeAddress += sizeof(int), UNIDAD);
+        EEPROM.get(eeAddress += sizeof(int), DECENA);
+        EEPROM.get(eeAddress += sizeof(int), CENTENA);
+        EEPROM.get(eeAddress += sizeof(int), UMILLAR);
+        EEPROM.get(eeAddress += sizeof(int), DMILLAR);
+      } else {
+        //Actualizar eeprom con los valores a cero
+        EEPROM.put(eeAddress, 1);
+        EEPROM.put(eeAddress += sizeof(int), UNIDAD);
+        EEPROM.put(eeAddress += sizeof(int), DECENA);
+        EEPROM.put(eeAddress += sizeof(int), CENTENA);
+        EEPROM.put(eeAddress += sizeof(int), UMILLAR);
+        EEPROM.put(eeAddress += sizeof(int), DMILLAR);
+      }
+    } else if (valor1 == 1) {
+      //Actualizar eeprom (Se hace de este modo para que se mantengan valores en el menú set)
+      EEPROM.update(eeAddress += sizeof(int), UNIDAD);
+      EEPROM.update(eeAddress += sizeof(int), DECENA);
+      EEPROM.update(eeAddress += sizeof(int), CENTENA);
+      EEPROM.update(eeAddress += sizeof(int), UMILLAR);
+      EEPROM.update(eeAddress += sizeof(int), DMILLAR);
+    }
+  }
+  //Cálculo de la variable consigna
+  CONSIGNA = (DMILLAR * 10000L) + (UMILLAR * 1000L) + (CENTENA * 100L) + (DECENA * 10L) + UNIDAD;
 }
 
 //Interrupción para el conteo de ciclos en cuaqluier instante
