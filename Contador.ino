@@ -55,12 +55,14 @@ unsigned long tiempopantalla = 0;   //Contabilizar tiempo hasta que aparezca pan
 unsigned long tiempoensayo = 0;     //Fijar el tiempo inicial ensayo
 unsigned long tiempomillis = 0;     //Contabilizar el tiempo de ensayo
 
-//Variables pulsadores sensores y actuadores
-int SENSOR = 2;     //Sensor para conteo de ciclos
-int PULSADOR = 3;   //Pulsador para cambiar digitos
-int SET = 4;        //Pulsador de set
-int RESET = 5;      //Pulsador de reset
-int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
+/*
+  //Variables pulsadores sensores y actuadores
+  int SENSOR = 2;     //Sensor para conteo de ciclos
+  int PULSADOR = 3;   //Pulsador para cambiar digitos
+  int SET = 4;        //Pulsador de set
+  int RESET = 5;      //Pulsador de reset
+  int RELE = 6;       //Relé NC para cierre de cicrcuito en contactor motor
+*/
 
 byte A[8] = {       //Definición de una variable con la información de un caracter especial
   B00000,
@@ -74,12 +76,8 @@ byte A[8] = {       //Definición de una variable con la información de un cara
 };
 
 void setup() {
-  //Definicion de pines como salidas o entradas
-  pinMode(SENSOR, INPUT);
-  pinMode(PULSADOR, INPUT);
-  pinMode(SET, INPUT);
-  pinMode(RESET, INPUT);
-  pinMode(RELE, OUTPUT);
+  //Definicion de pines como salidas o entradas, Puerto D pines digitales de 7 a 0
+  DDRD = B01000000;
   //Se inicia el LCD y se define el brillo
   lcd.begin (16, 2);
   lcd.setBacklightPin(3, POSITIVE);
@@ -91,7 +89,7 @@ void setup() {
 void loop() {
 
   //Se actualiza el tiempo mientras se está a low para empezar a contar desde que se pulsa
-  if ((digitalRead(PULSADOR) == LOW) && (digitalRead(SET) == LOW) && (digitalRead(RESET) == LOW)) {
+  if (!(PIND & (1 << PD3)) && !(PIND & (1 << PD4)) && !(PIND & (1 << PD5))) {
     tiemporebote = millis();
   }
 
@@ -100,7 +98,7 @@ void loop() {
   }
 
   if (CICLOS == CONSIGNA && CONSIGNA != 0) {  //Activación del relé (Pasa a abierto hasta hacer reset)
-    digitalWrite(RELE, HIGH);
+    PORTD |= (1 << PB6);  //Se define solamente el pin 6 a HIGH
   }
 
   if (CICLOS != CONSIGNA && CICLOS != 0) {  //Se calculan las variables de tiempo
@@ -121,16 +119,16 @@ void loop() {
     RPMPREVIO = 0;
   }
 
-  if (digitalRead(RESET) == HIGH && (millis() - tiemporebote) > 300) {  //Se hace reset de ciclos y variables de tiempo
+  if (PIND & (1 << PD5) && (millis() - tiemporebote) > 300) {  //Se hace reset de ciclos y variables de tiempo
     tiemporebote = millis();
     CICLOS = 0;
     HORAS = 0;
     MINUTOS = 0;
     SEGUNDOS = 0;
-    digitalWrite(RELE, LOW);
+    PORTD &= ~(1 << PB6);  //Se define solamente el pin 6 a LOW
   }
 
-  if (digitalRead(SET) == HIGH && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
+  if (PIND & (1 << PD4) && (millis() - tiemporebote) > 300) {  //Se define la variable para entrar a los menús
     tiemporebote = millis();
     if (MENU < 5 && CICLOS == 0) {
       MENU++;
@@ -142,7 +140,7 @@ void loop() {
 
   //Se cuentan los ciclos si han pasado 100ms desde la interrupción y el pin sigue a high
   //Si en ese tiempo hay otro pulso el tiempo se pone a cero. Si se deja pulsado solo se cuenta el primero
-  if (digitalRead(SENSOR) == HIGH && (millis() - tiempointerr) > 100 && INTERR == 1 && MENU == 0) {
+  if (PIND & (1 << PD2) && (millis() - tiempointerr) > 100 && INTERR == 1 && MENU == 0) {
     if (CONSIGNA > 0 && CICLOS != CONSIGNA) {  //Se cuenta el ciclo
       CICLOS++;
     }
@@ -151,7 +149,7 @@ void loop() {
     }
     CICLORPM++;
     INTERR = 0;
-  } else if (digitalRead(SENSOR) == LOW) {
+  } else if (!(PIND & (1 << PD2))) {
     INTERR = 0;
   }
 
@@ -230,7 +228,7 @@ void Set() {
     lcd.clear();
   }
   MENUPREVIO = MENU;
-  if (digitalRead(PULSADOR) == HIGH && (millis() - tiemporebote) > 300) {
+  if (PIND & (1 << PD3) && (millis() - tiemporebote) > 300) {
     tiemporebote = millis();
     if (MENU == 1) {
       if (DMILLAR < 9) {
@@ -273,7 +271,7 @@ void Set() {
     lcd.print(UNIDAD);
     lcd.setCursor ( 0, 1 );
     lcd.print("Definir ciclos");
-    if (digitalRead(RESET) == HIGH) { //Se muestra la versión o se limpia la zona
+    if (PIND & (1 << PD5)) { //Se muestra la versión o se limpia la zona
       lcd.setCursor ( 7, 0 );
       lcd.print("V1.1 2019");
     } else {
